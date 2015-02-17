@@ -1,2 +1,2 @@
 # mqtt-mysensors
-Provide a MQTT service usinga mysensors serial gateway
+Provide a MQTT service using a mysensors serial gateway
