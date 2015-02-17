@@ -1,0 +1,204 @@
+#!/usr/bin/python
+#
+# mqtt-mysensors by Theo Arends
+#
+# Provides MySensors MQTT service using a mysensors serial gateway
+#
+# Execute: nohup mqtt-mysensors &
+#
+# Needs paho.mqtt.client
+#   - git clone http://git.eclipse.org/gitroot/paho/org.eclipse.paho.mqtt.python.git
+#   - python setup.py install
+# Needs pyserial 2.7
+#   - apt-get install python-pip
+#   - pip install pyserial
+#
+# Topic = <topic_prefix>/<node_id>/<child_id>/<variable_type> <value>
+#   - mysensors/4/0/V_LIGHT ON
+#
+# **** Start of user configuration values
+
+serial_port = "/dev/ttyUSB0"   # MySensors serial gateway port
+serial_bps = 115200            # MySensors serial gateway baud rate
+
+broker = "sidnas2"             # MQTT broker ip address or name
+broker_port = 1883             # MQTT broker port
+
+topic_prefix = "mysensors"     # MQTT mysensors topic prefix
+
+M_INFO = 0                     # Print messages: 0 - none, 1 - Startup, 2 - Serial, 3 - All
+
+# **** End of user configuration values
+
+import paho.mqtt.client as mqtt
+import serial
+import time
+
+# mysensor_command
+C_PRESENTATION = '0'
+C_SET = '1'
+C_REQ = '2'
+C_INTERNAL = '3'
+C_STREAM = '4'
+
+# mysensor_data
+V_codes = ['TEMP', 'HUM', 'LIGHT', 'DIMMER', 'PRESSURE', 'FORECAST', 'RAIN', 'RAINRATE', 'WIND',
+'GUST', 'DIRECTON', 'UV', 'WEIGHT', 'DISTANCE', 'IMPEDANCE', 'ARMED', 'TRIPPED', 'WATT', 'KWH',
+'SCENE_ON', 'SCENE_OFF', 'HEATER', 'HEATER_SW', 'LIGHT_LEVEL', 'VAR1', 'VAR2', 'VAR3', 'VAR4', 
+'VAR5', 'UP', 'DOWN', 'STOP', 'IR_SEND', 'IR_RECEIVE', 'FLOW', 'VOLUME', 'LOCK_STATUS', 'DUST_LEVEL',
+'VOLTAGE', 'CURRENT']
+
+# mysensor_internal
+I_codes = ['BATTERY_LEVEL', 'TIME', 'VERSION', 'ID_REQUEST', 'ID_RESPONSE', 'INCLUSION_MODE', 'CONFIG',
+'FIND_PARENT', 'FIND_PARENT_RESPONSE', 'LOG_MESSAGE', 'CHILDREN', 'SKETCH_NAME', 'SKETCH_VERSION',
+'REBOOT', 'GATEWAY_READY']
+
+# mysensor_sensor
+S_codes = ['DOOR', 'MOTION', 'SMOKE', 'LIGHT', 'DIMMER', 'COVER', 'TEMP', 'HUM', 'BARO', 'WIND',
+'RAIN', 'UV', 'WEIGHT', 'POWER', 'HEATER', 'DISTANCE', 'LIGHT_LEVEL', 'ARDUINO_NODE',
+'ARDUINO_REPEATER_NODE', 'LOCK', 'IR', 'WATER', 'AIR_QUALITY', 'CUSTOM', 'DUST', 'SCENE_CONTROLLER']
+
+M_NACK = '0'
+M_ACK = '1'
+
+B_codes = ['OFF', 'ON']
+
+mypublish = ""
+
+# The callback for when the client receives a CONNACK response from the server.
+def on_connect(client, userdata, flags, rc):
+  if M_INFO > 0:
+    print("\nMQTT-MySensors service connected with result code "+str(rc))
+
+# Subscribing in on_connect() means that if we lose the connection and
+# reconnect then subscriptions will be renewed.
+  client.subscribe(topic_prefix+"/#")
+
+# The callback for when a PUBLISH message is received from the server.
+def on_message(client, userdata, msg):
+
+  if M_INFO > 2:
+    print(" Last published |"+mypublish+"|")
+    print("MQTT subscribed |"+msg.topic+"|"+msg.payload+"|")
+
+  mysubscribe = msg.topic+"/"+msg.payload
+  if mypublish != mysubscribe:
+    parts = msg.topic.split("/")  # mysensors/4/0/V_LIGHT/ON
+    if len(parts) > 3:
+      command = C_PRESENTATION
+      idx = "0"
+      mysensor_data = parts[3].upper()
+      msg_payload = msg.payload.rstrip()
+      payload = ""
+      if mysensor_data[0] == 'I':
+        command = C_INTERNAL
+        payload = ";" + msg_payload
+        if mysensor_data[2:22] in I_codes:
+          idx = str(I_codes.index(mysensor_data[2:22]))
+      else:
+	      if len(msg_payload) == 0:
+	        command = C_REQ
+	      else:
+	        command = C_SET
+	        payload = ";" + msg_payload
+	        if mysensor_data == 'V_LIGHT':
+	          if msg_payload.upper() in B_codes:
+	            payload = ";"+str(B_codes.index(msg_payload.upper()))
+	      if mysensor_data[2:22] in V_codes:
+	        idx = str(V_codes.index(mysensor_data[2:22]))
+      myserial = parts[1]+";"+parts[2]+";"+command+";0;"+idx+payload
+
+      if M_INFO > 1:
+        print("     Serial out |"+myserial+"|")
+
+      ser.write(myserial+"\n")
+
+if M_INFO > 0:
+  print("MQTT mysensors serial gateway service.")
+
+while True:
+  client = mqtt.Client()
+  client.on_connect = on_connect
+  client.on_message = on_message
+
+  rc = 1
+  while rc == 1:
+    try:
+      client.connect(broker, broker_port)
+      rc = 0
+    except:
+
+      if M_INFO > 0:
+        print("Warning: No broker found. Retry in one minute.")
+
+      time.sleep(60)
+      pass
+
+  client.publish(topic_prefix+"/0/0/I_LOG_MESSAGE", "Connection with broker established.")
+
+  sf = 1
+  while sf == 1:
+    try:
+      ser = serial.Serial(port=serial_port, baudrate=serial_bps)
+      sf = 0
+    except:
+
+      if M_INFO > 0:
+        print("Warning: No serial port found. Retry in one minute.")
+
+      client.publish(topic_prefix+"/0/0/I_LOG_MESSAGE", "No serial Gateway found but will retry in one minute.")
+      time.sleep(60)
+      pass
+
+#  client.publish(topic_prefix+"/0/0/I_GATEWAY_READY", "MQTT Gateway startup complete.")
+  while rc == 0:
+    rv = ''
+
+    try:
+      while ser.inWaiting() > 0:
+        ch = ser.read(1)
+        rv += ch
+        if ch=='\n':
+          rv = rv.rstrip()
+
+          if M_INFO > 1:
+            print("      Serial in |"+rv+"|")
+
+          parts = rv.split(";")  # 2;0;1;0;0;25.0
+          if len(parts) > 4:
+            mysensor_data = ''
+            payload = parts[5]
+            if parts[2] == C_PRESENTATION:
+              if int(parts[4]) < len(S_codes):
+                mysensor_data = "S_"+S_codes[int(parts[4])]
+              else:
+                mysensor_data = "S_UNKNOWN"
+            elif parts[2] == C_INTERNAL:
+              if int(parts[4]) < len(I_codes):
+                mysensor_data = "I_"+I_codes[int(parts[4])]
+              else:
+                mysensor_data = "I_UNKNOWN"
+            else:
+              if int(parts[4]) < len(V_codes):
+                mysensor_data = "V_"+V_codes[int(parts[4])]
+              else:  
+                mysensor_data = "V_UNKNOWN"
+              if mysensor_data == "V_LIGHT":
+                if int(parts[5]) < len(B_codes):
+                  payload = B_codes[int(parts[5])] # ON / OFF
+            mytopic = topic_prefix+"/"+parts[0]+"/"+parts[1]+"/"+mysensor_data
+            mypublish = mytopic+"/"+payload
+
+            if M_INFO > 2:
+              print("  New published |"+mypublish+"|")
+              print(" MQTT published |"+mytopic+"|"+payload+"|")
+
+            client.publish(mytopic, payload)
+          rv = ''
+      rc = client.loop()
+    except:
+      rc = 1
+      pass
+
+  ser.close()
+  print("Warning: Communication error - Restarting.")
