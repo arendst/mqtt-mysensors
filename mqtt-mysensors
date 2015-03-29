@@ -85,35 +85,38 @@ def on_message(client, userdata, msg):
   if mypublish != mysubscribe:
     parts = msg.topic.split("/")  # mysensors/4/0/V_LIGHT/ON
 
-    if (len(parts) > 3) and (int(parts[1]) < 256) and (int(parts[2]) < 256):
-      command = C_PRESENTATION
-      idx = "0"
-      mysensor_data = parts[3].upper()
-      msg_payload = msg.payload.rstrip()
-      payload = ""
-      if mysensor_data[0] == 'I':
-        command = C_INTERNAL
-        if len(msg_payload) != 0:
-          payload = ";" + msg_payload
-        if mysensor_data[2:22] in I_codes:
-          idx = str(I_codes.index(mysensor_data[2:22]))
-      else:
-        if len(msg_payload) == 0:
-          command = C_REQ
+    try:
+      if (len(parts) > 3) and (int(parts[1]) < 256) and (int(parts[2]) < 256):
+        command = C_PRESENTATION
+        idx = "0"
+        mysensor_data = parts[3].upper()
+        msg_payload = msg.payload.rstrip()
+        payload = ""
+        if mysensor_data[0] == 'I':
+          command = C_INTERNAL
+          if len(msg_payload) != 0:
+            payload = ";" + msg_payload
+          if mysensor_data[2:22] in I_codes:
+            idx = str(I_codes.index(mysensor_data[2:22]))
         else:
-          command = C_SET
-          payload = ";" + msg_payload
-          if mysensor_data == 'V_LIGHT':
-            if msg_payload.upper() in B_codes:
-              payload = ";"+str(B_codes.index(msg_payload.upper()))
-        if mysensor_data[2:22] in V_codes:
-          idx = str(V_codes.index(mysensor_data[2:22]))
-      myserial = parts[1]+";"+parts[2]+";"+command+";0;"+idx+payload
+          if len(msg_payload) == 0:
+            command = C_REQ
+          else:
+            command = C_SET
+            payload = ";" + msg_payload
+            if mysensor_data == 'V_LIGHT':
+              if msg_payload.upper() in B_codes:
+                payload = ";"+str(B_codes.index(msg_payload.upper()))
+          if mysensor_data[2:22] in V_codes:
+            idx = str(V_codes.index(mysensor_data[2:22]))
+        myserial = parts[1]+";"+parts[2]+";"+command+";0;"+idx+payload
 
-      if M_INFO > 1:
-        print("     Serial out |"+myserial+"|")
+        if M_INFO > 1:
+          print("     Serial out |"+myserial+"|")
 
-      ser.write(myserial+"\n")
+        ser.write(myserial+"\n")
+    except:
+      pass
 
 if M_INFO > 0:
   print("MQTT mysensors serial gateway service.")
